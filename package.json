@@ -1,8 +1,8 @@
 {
-  "name": "3box",
-  "version": "1.0.3",
+  "name": "@tyleryasaka/3box",
+  "version": "1.0.5",
   "description": "Interact with user data",
-  "main": "lib/3box.js",
+  "main": "dist/3box.js",
   "directories": {
     "lib": "lib"
   },
@@ -31,7 +31,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/uport-project/3box-js.git"
+    "url": "https://github.com/tyleryasaka/3box-js.git"
   },
   "author": "uPort <team@uport.me>",
   "license": "Apache-2.0",
