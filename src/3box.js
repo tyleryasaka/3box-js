@@ -12,7 +12,7 @@ const OrbitdbKeyAdapter = require('./orbitdbKeyAdapter')
 const OrbitDBEthstore = require('orbit-db-ethstore')
 const utils = require('./utils')
 
-const PINNING_NODE = '/ip4/127.0.0.1/tcp/4003/ws/ipfs/QmTWv5fGvUSFS8K86zxgGRYCEDLJLqGAXa5yjcZKG6weC5'
+const PINNING_NODE = '/dnsaddr/ec2-34-238-241-147.compute-1.amazonaws.com/tcp/4003/ws/ipfs/QmTR6PXDHH65uFkaj2sQNrm9uvr2EQ5Kvp7p9UiFjfS5qx'
 const PINNING_ROOM = '3box-pinning'
 const IPFS_OPTIONS = {
   EXPERIMENTAL: {
