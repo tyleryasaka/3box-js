@@ -4,14 +4,15 @@ const localstorage = require('store')
 const IPFS = require('ipfs')
 const OrbitDB = require('orbit-db')
 const Pubsub = require('orbit-db-pubsub')
+const Web3 = require('web3')
 
 const PublicStore = require('./publicStore')
 const PrivateStore = require('./privateStore')
 const OrbitdbKeyAdapter = require('./orbitdbKeyAdapter')
+const OrbitDBEthstore = require('orbit-db-ethstore')
 const utils = require('./utils')
 
-const ADDRESS_SERVER_URL = 'https://beta.3box.io/address-server'
-const PINNING_NODE = '/dnsaddr/ipfs.3box.io/tcp/443/wss/ipfs/QmZvxEpiVNjmNbEKyQGvFzAY1BwmGuuvdUTmcTstQPhyVC'
+const PINNING_NODE = '/ip4/127.0.0.1/tcp/4003/ws/ipfs/QmTWv5fGvUSFS8K86zxgGRYCEDLJLqGAXa5yjcZKG6weC5'
 const PINNING_ROOM = '3box-pinning'
 const IPFS_OPTIONS = {
   EXPERIMENTAL: {
@@ -19,9 +20,11 @@ const IPFS_OPTIONS = {
   },
   preload: { enabled: false }
 }
+const ROOT_DB_NAME = '3box-test-022'
 
 let globalIPFS
 let globalOrbitDB
+let globalRootOrbitDB
 
 class Box {
   /**
@@ -30,7 +33,6 @@ class Box {
   constructor (muportDID, ethereumProvider, opts = {}) {
     this._muportDID = muportDID
     this._web3provider = ethereumProvider
-    this._serverUrl = opts.addressServer || ADDRESS_SERVER_URL
     this._onSyncDoneCB = () => {}
     /**
      * @property {KeyValueStore} public         access the profile store of the users 3Box
@@ -42,10 +44,20 @@ class Box {
     this.private = null
   }
 
+  async _createKeyStoreEthereum(web3Provider, { readOnly } = {}) {
+    if (readOnly) {
+      return new OrbitDBEthstore(web3Provider)
+    } else {
+      const web3 = new Web3(web3Provider)
+      const accounts = await web3.eth.getAccounts()
+      const account = accounts[0].toLowerCase()
+      return new OrbitDBEthstore(web3, account)
+    }
+  }
+
   async _load (opts = {}) {
     const did = this._muportDID.getDid()
-    const didFingerprint = utils.sha256Multihash(did)
-    const rootStoreName = didFingerprint + '.root'
+    const didFingerprint = ROOT_DB_NAME
 
     const pinningNode = opts.pinningNode || PINNING_NODE
     // console.time('start ipfs')
@@ -58,13 +70,16 @@ class Box {
     })
 
     const keystore = new OrbitdbKeyAdapter(this._muportDID)
+    const keystoreEthereum = await this._createKeyStoreEthereum(this._web3provider)
     // console.time('new OrbitDB')
     this._orbitdb = new OrbitDB(this._ipfs, opts.orbitPath, { keystore })
+    this._rootOrbitdb = new OrbitDB(this._ipfs, opts.orbitPath, { keystore: keystoreEthereum })
     // console.timeEnd('new OrbitDB')
     globalIPFS = this._ipfs
     globalOrbitDB = this._orbitdb
+    globalRootOrbitDB = this._rootOrbitdb
 
-    this._rootStore = await this._orbitdb.feed(rootStoreName)
+    this._rootStore = await this._rootOrbitdb.feed(ROOT_DB_NAME)
     const rootStoreAddress = this._rootStore.address.toString()
 
     // console.time('opening pinning room, pinning node joined')
@@ -79,7 +94,7 @@ class Box {
       }
     }
 
-    this.public = new PublicStore(this._orbitdb, didFingerprint + '.public', this._linkProfile.bind(this))
+    this.public = new PublicStore(this._orbitdb, didFingerprint + '.public')
     this.private = new PrivateStore(this._muportDID, this._orbitdb, didFingerprint + '.private')
 
     // console.time('load stores')
@@ -120,7 +135,6 @@ class Box {
     await this._rootStore.add({ odbAddress: privOdbAddress })
     // console.timeEnd('add PrivateStore to rootStore')
     // console.time('publish rootStoreAddress to address-server')
-    this._publishRootStore(rootStoreAddress)
     // console.timeEnd('publish rootStoreAddress to address-server')
   }
 
@@ -134,13 +148,14 @@ class Box {
    * @param     {String}    opts.orbitPath          A custom path for orbitdb storage
    * @return    {Object}                            a json object with the profile for the given address
    */
-  static async getProfile (address, opts = {}) {
-    const serverUrl = opts.addressServer || ADDRESS_SERVER_URL
-    const rootStoreAddress = await getRootStoreAddress(serverUrl, address.toLowerCase())
+  static async getProfile (address, ethereumProvider, opts = {}) {
+    const normalizedAddress = address.toLowerCase()
     let usingGlobalIPFS = false
     let usingGlobalOrbitDB = false
+    let usingGlobalRootOrbitDB = false
     let ipfs
     let orbitdb
+    let rootOrbitdb
     if (globalIPFS) {
       ipfs = globalIPFS
       usingGlobalIPFS = true
@@ -149,14 +164,27 @@ class Box {
     }
     if (globalOrbitDB) {
       orbitdb = globalOrbitDB
-      usingGlobalIPFS = true
+      usingGlobalOrbitDB = true
     } else {
       orbitdb = new OrbitDB(ipfs, opts.orbitPath)
     }
+    if (globalRootOrbitDB) {
+      rootOrbitdb = globalRootOrbitDB
+      usingGlobalRootOrbitDB = true
+    } else {
+      const keystoreEthereum = await this._createKeyStoreEthereum(ethereumProvider, { readonly: true })
+      rootOrbitdb = new OrbitDB(ipfs, opts.orbitPath, { keystore: keystoreEthereum })
+    }
     const publicStore = new PublicStore(orbitdb)
 
+    const rootStoreAddress = await rootOrbitdb.determineAddress(
+      ROOT_DB_NAME,
+      'feed',
+      { write: [normalizedAddress] }
+    )
+
     if (rootStoreAddress) {
-      const rootStore = await orbitdb.open(rootStoreAddress)
+      const rootStore = await rootOrbitdb.open(rootStoreAddress)
       const readyPromise = new Promise((resolve, reject) => {
         rootStore.events.on('ready', resolve)
       })
@@ -184,6 +212,7 @@ class Box {
         await rootStore.close()
         await publicStore.close()
         if (!usingGlobalOrbitDB) await orbitdb.stop()
+        if (!usingGlobalRootOrbitDB) await rootOrbitdb.stop()
         if (!usingGlobalIPFS) await ipfs.stop()
       }
       // close but don't wait for it
@@ -249,47 +278,6 @@ class Box {
     this._onSyncDoneCB = syncDone
   }
 
-  async _publishRootStore (rootStoreAddress) {
-    // Sign rootStoreAddress
-    const addressToken = await this._muportDID.signJWT({ rootStoreAddress })
-    // Store odbAddress on 3box-address-server
-    try {
-      await utils.httpRequest(this._serverUrl + '/odbAddress', 'POST', {
-        address_token: addressToken
-      })
-    } catch (err) {
-      throw new Error(err)
-    }
-    return true
-  }
-
-  async _linkProfile () {
-    const address = this._muportDID.getDidDocument().managementKey
-    if (!localstorage.get('linkConsent_' + address)) {
-      const did = this._muportDID.getDid()
-      const consent = await utils.getLinkConsent(
-        address,
-        did,
-        this._web3provider
-      )
-      const linkData = {
-        consent_msg: consent.msg,
-        consent_signature: consent.sig,
-        linked_did: did
-      }
-      // Send consentSignature to 3box-address-server to link profile with ethereum address
-      await utils.httpRequest(this._serverUrl + '/link', 'POST', linkData)
-
-      // Store linkConsent into localstorage
-      const linkConsent = {
-        address: address,
-        did: did,
-        consent: consent
-      }
-      localstorage.set('linkConsent_' + address, linkConsent)
-    }
-  }
-
   /**
    * Closes the 3box instance without clearing the local cache.
    * Should be called after you are done using the 3Box instance,
@@ -334,24 +322,6 @@ async function initIPFS (ipfsOptions) {
       reject(error)
     })
     ipfs.on('ready', () => resolve(ipfs))
-  })
-}
-
-async function getRootStoreAddress (serverUrl, identifier) {
-  return new Promise(async (resolve, reject) => {
-    try {
-      // read orbitdb root store address from the 3box-address-server
-      const res = await utils.httpRequest(
-        serverUrl + '/odbAddress/' + identifier,
-        'GET'
-      )
-      resolve(res.data.rootStoreAddress)
-    } catch (err) {
-      if (JSON.parse(err).message === 'root store address not found') {
-        resolve(null)
-      }
-      reject(err)
-    }
   })
 }
 
