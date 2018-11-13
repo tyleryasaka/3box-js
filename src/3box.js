@@ -44,7 +44,7 @@ class Box {
     this.private = null
   }
 
-  async _createKeyStoreEthereum(web3Provider, { readOnly } = {}) {
+  static async _createKeyStoreEthereum(web3Provider, { readOnly } = {}) {
     if (readOnly) {
       return new OrbitDBEthstore(web3Provider)
     } else {
@@ -70,7 +70,7 @@ class Box {
     })
 
     const keystore = new OrbitdbKeyAdapter(this._muportDID)
-    const keystoreEthereum = await this._createKeyStoreEthereum(this._web3provider)
+    const keystoreEthereum = await Box._createKeyStoreEthereum(this._web3provider)
     // console.time('new OrbitDB')
     this._orbitdb = new OrbitDB(this._ipfs, opts.orbitPath, { keystore })
     this._rootOrbitdb = new OrbitDB(this._ipfs, opts.orbitPath, { keystore: keystoreEthereum })
@@ -172,7 +172,7 @@ class Box {
       rootOrbitdb = globalRootOrbitDB
       usingGlobalRootOrbitDB = true
     } else {
-      const keystoreEthereum = await this._createKeyStoreEthereum(ethereumProvider, { readonly: true })
+      const keystoreEthereum = await Box._createKeyStoreEthereum(ethereumProvider, { readonly: true })
       rootOrbitdb = new OrbitDB(ipfs, opts.orbitPath, { keystore: keystoreEthereum })
     }
     const publicStore = new PublicStore(orbitdb)
