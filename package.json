@@ -48,7 +48,7 @@
     "js-sha256": "^0.9.0",
     "muport-core": "^0.4.1",
     "orbit-db": "git+https://github.com/tyleryasaka/orbit-db.git#determine-address",
-    "orbit-db-ethstore": "git+https://github.com/tyleryasaka/orbit-db-ethstore.git",
+    "orbit-db-ethstore": "tyleryasaka/orbit-db-ethstore",
     "store": "^2.0.12",
     "web3": "^1.0.0-beta.36",
     "xmlhttprequest": "^1.8.0"
